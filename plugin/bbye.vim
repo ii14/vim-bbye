@@ -9,15 +9,24 @@ function! s:bdelete(action, bang, buffer_name)
 		return s:error("E516: No buffers were deleted. No match for ".a:buffer_name)
 	endif
 
-	if getbufvar(buffer, "&modified") && empty(a:bang)
-		let error = "E89: No write since last change for buffer "
-		return s:error(error . buffer . " (add ! to override)")
-	endif
-
-	" If the buffer is set to delete and it contains changes, we can't switch
-	" away from it. Hide it before eventual deleting:
-	if getbufvar(buffer, "&modified") && !empty(a:bang)
-		call setbufvar(buffer, "&bufhidden", "hide")
+	if has('nvim') && getbufvar(buffer, "&buftype") ==# 'terminal'
+		if getbufvar(buffer, "bbye_term_closed", 1)
+			if empty(a:bang)
+				let error = "E89: "
+				return s:error(error . bufname(buffer) . " will be killed (add ! to override)")
+			else
+				call setbufvar(buffer, "&bufhidden", "hide")
+			endif
+		endif
+	elseif getbufvar(buffer, "&modified")
+		if empty(a:bang)
+			let error = "E89: No write since last change for buffer "
+			return s:error(error . buffer . " (add ! to override)")
+		else
+			" If the buffer is set to delete and it contains changes, we can't switch
+			" away from it. Hide it before eventual deleting:
+			call setbufvar(buffer, "&bufhidden", "hide")
+		endif
 	endif
 
 	" For cases where adding buffers causes new windows to appear or hiding some
@@ -49,7 +58,11 @@ function! s:bdelete(action, bang, buffer_name)
 	" Using buflisted() over bufexists() because bufhidden=delete causes the
 	" buffer to still _exist_ even though it won't be :bdelete-able.
 	if buflisted(buffer) && buffer != bufnr("%")
-		exe a:action . a:bang . " " . buffer
+		if has('nvim') && getbufvar(buffer, '&buftype') ==# 'terminal'
+			exe a:action . "! " . buffer
+		else
+			exe a:action . a:bang . " " . buffer
+		endif
 	endif
 endfunction
 
@@ -83,6 +96,13 @@ function! s:error(msg)
 	echohl NONE
 	let v:errmsg = a:msg
 endfunction
+
+if has('nvim')
+	augroup bbye
+		autocmd!
+		autocmd TermClose * let b:bbye_term_closed = 0
+	augroup end
+endif
 
 command! -bang -complete=buffer -nargs=? Bdelete
 	\ :call s:bdelete("bdelete", <q-bang>, <q-args>)
